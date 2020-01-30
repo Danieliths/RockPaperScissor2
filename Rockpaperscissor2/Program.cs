@@ -18,14 +18,14 @@ namespace RockPaperScissor
         private static readonly string monitoredContainer = "Games";
         private static readonly string leasesContainer = "leases";
         private static readonly string partitionKeyPath = "/id";
+        private static readonly string endpoint = "https://localhost:8081";
+        private static readonly string authKey = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==";
         private static Game currentGame;
         private static Container container;
         private static Player player;
         private static ChangeFeedProcessor changeFeedProcessor;
         static async Task Main(string[] args)
         {
-            string endpoint = "https://localhost:8081";
-            string authKey = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==";
             CosmosClient client = new CosmosClient(endpoint, authKey);
             CreatePlayer();
             await RunBasicChangeFeed("Games", client);
@@ -44,7 +44,7 @@ namespace RockPaperScissor
             Container leaseContainer = client.GetContainer(databaseId, Program.leasesContainer);
             container = client.GetContainer(databaseId, Program.monitoredContainer);
             changeFeedProcessor = container
-                .GetChangeFeedProcessorBuilder<Game>("RockPaperScissor", HandleChangesAsync)
+                .GetChangeFeedProcessorBuilder<Game>("RockPaperScissor", HandleChangesAsync) //here is the callback we setup
                 .WithInstanceName("consoleHost")
                 .WithLeaseContainer(leaseContainer)
                 .Build();
@@ -52,30 +52,29 @@ namespace RockPaperScissor
         }
         private static async Task HandleChangesAsync(IReadOnlyCollection<Game> changes, CancellationToken cancellationToken)
         {
-            // Rätt Gamecheck
+            // Check so dbupdate is for our game
             if (currentGame.Id != changes.First().Id)
             {
                 return;
             }
 
-            // Uppdatera currentGame med ändringar från db
+            // Update currentGame with changes from the DB
             currentGame = changes.First();
 
-            // Säkerställer att spelaren är i ett game
+            // Check so the player has joined a game
             if (player.HasJoinedGame == false)
             {
                 return;
             }
 
-            // Skriv ut i väntan på att motstondare hittas
+            // While waiting from a player
             if (currentGame.IsJoinable == true && player.HasJoinedGame)
             {
                 Console.WriteLine("Waiting for player to join");
-                await Task.Delay(50);
                 return;
             }
             
-            // Skriv ut vinnare
+            // Show winner if ToMove is set to None
             if (currentGame.ToMove == Game.PlayerType.None)
             {
                 Console.Clear();
@@ -83,7 +82,7 @@ namespace RockPaperScissor
                 return;
             }
 
-            // Ser vem som vann senaste rundan och skriver ut det
+            // Show who won the last round
             if (currentGame.CreatorMove.Count() == currentGame.JoinerMove.Count() && currentGame.CreatorMove.Count() == currentGame.Turn)
             {
                 Console.Clear();
@@ -94,11 +93,11 @@ namespace RockPaperScissor
                         {
                             Draw();
                         }
-                        if (currentGame.JoinerMove.Last() == Game.Move.Paper)
+                        else if (currentGame.JoinerMove.Last() == Game.Move.Paper)
                         {
                             JoinerWin();
                         }
-                        if (currentGame.JoinerMove.Last() == Game.Move.Scissors)
+                        else if (currentGame.JoinerMove.Last() == Game.Move.Scissors)
                         {
                             CreatorWin();
                         }
@@ -108,11 +107,11 @@ namespace RockPaperScissor
                         {
                             CreatorWin();
                         }
-                        if (currentGame.JoinerMove.Last() == Game.Move.Paper)
+                        else if (currentGame.JoinerMove.Last() == Game.Move.Paper)
                         {
                             Draw();
                         }
-                        if (currentGame.JoinerMove.Last() == Game.Move.Scissors)
+                        else if (currentGame.JoinerMove.Last() == Game.Move.Scissors)
                         {
                             JoinerWin();
                         }
@@ -122,11 +121,11 @@ namespace RockPaperScissor
                         {
                             JoinerWin();
                         }
-                        if (currentGame.JoinerMove.Last() == Game.Move.Paper)
+                        else if (currentGame.JoinerMove.Last() == Game.Move.Paper)
                         {
                             CreatorWin();
                         }
-                        if (currentGame.JoinerMove.Last() == Game.Move.Scissors)
+                        else if (currentGame.JoinerMove.Last() == Game.Move.Scissors)
                         {
                             Draw();
                         }
@@ -136,7 +135,7 @@ namespace RockPaperScissor
                 }
             }
 
-            // Vinnare funnen check, sätter ToMove.None
+            // Check if winner is determend, set ToMove.None
             if (currentGame.FirstToNumberOfWins == currentGame.CreatorScore || currentGame.FirstToNumberOfWins == currentGame.JoinerScore)
             {
                 Console.Clear();
@@ -147,18 +146,17 @@ namespace RockPaperScissor
                 return;
             }
 
-            // vänta på din tur
+            // Wait for your turn
             if (currentGame.ToMove != player.TypeOfPlayer)
             {
                 if (player.TypeOfPlayer == Game.PlayerType.Joiner)
                 {
                     Console.WriteLine($"Waiting for {currentGame.CreatorName} to move");
                 }
-                if (player.TypeOfPlayer == Game.PlayerType.Creator)
+                else if (player.TypeOfPlayer == Game.PlayerType.Creator)
                 {
                     Console.WriteLine($"Waiting for {currentGame.JoinerName} to move");
                 }
-                await Task.Delay(70);
                 return;
             }
             
@@ -190,13 +188,11 @@ namespace RockPaperScissor
             player.HasJoinedGame = false;
             player.TypeOfPlayer = Game.PlayerType.None;
             await Menu();
-
             while (currentGame.IsGameCompleted == false)
             {
-                await Task.Delay(50);
             }
         }
-        private static async Task JoinGame()
+        private static async Task<bool> JoinGame()
         {
             Console.WriteLine("Looking for open game");
             if (container.GetItemLinqQueryable<Game>(true).Where(o => o.IsJoinable == true).Count() > 0)
@@ -210,17 +206,15 @@ namespace RockPaperScissor
                     currentGame.JoinerName = player.Name;
                     currentGame.IsJoinable = false;
                     await container.UpsertItemAsync<Game>(currentGame);
-                    return;
+                    //Resten av loopen körs ifrån changefeedcallbacken
+                    return true;
                 }
-                
-                await Task.Delay(500);
-                return;
             }
             Console.WriteLine("No open game found");
+            return false;
         }
         private static async Task CreateGame()
         {
-            await Task.Delay(500);
             currentGame = new Game(player.Name);
             await container.CreateItemAsync<Game>(currentGame); //new PartitionKey()
             player.HasJoinedGame = true;
@@ -228,6 +222,7 @@ namespace RockPaperScissor
             currentGame.IsGameCompleted = false;
             Console.WriteLine("game created");
             await container.UpsertItemAsync<Game>(currentGame);
+            //Resten av loopen körs ifrån changefeedcallbacken
         }
         private static async Task Menu()
         {
@@ -246,8 +241,7 @@ namespace RockPaperScissor
                         InputDone = true;
                         break;
                     case ConsoleKey.D2:
-                        await JoinGame();
-                        InputDone = true;
+                        InputDone = await JoinGame();
                         break;
                     case ConsoleKey.D3:
                         player.IsDonePlaying = true;
