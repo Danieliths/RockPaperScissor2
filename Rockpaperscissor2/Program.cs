@@ -32,12 +32,12 @@ namespace RockPaperScissor
             //startar up alla grejer de lyssnar efter
             p.CreatePlayer();
             await p.RunBasicChangeFeed("Games", client);
-            await p.RunGame(p);
             while (p.player.IsDonePlaying == false)
             {
-                await Task.Delay(500);
+            await p.RunGame(p);
+            await Task.Delay(3000);
             }
-            await p.EndGame();
+            await p.changeFeedProcessor.StopAsync();
             Console.WriteLine("Press any key to close...");
             Console.ReadKey();
             
@@ -47,41 +47,43 @@ namespace RockPaperScissor
         {
             player.HasJoinedGame = false;
             player.TypeOfPlayer = Game.PlayerType.None;
-            await p.JoinOrCreate(p);
+            await p.Menu(p);
 
             while (p.currentGame.IsGameCompleted == false)
             {
                 await Task.Delay(50);
             }
-
         }
-        private async Task JoinOrCreate(Program p)
+        private async Task Menu(Program p)
         {
-            
-            while (player.HasJoinedGame == false)
+            bool InputDone = false;
+            while (InputDone == false)
             {
-                Console.Clear();
+                Console.WriteLine();
                 Console.WriteLine("1: Create game");
                 Console.WriteLine("2: Join game");
+                Console.WriteLine("3: Exit");
                 var keyInput = Console.ReadKey().Key;
                 switch (keyInput)
                 {
                     case ConsoleKey.D1:
                         await p.CreateGame(p.container, p.player);
+                        InputDone = true;
                         break;
                     case ConsoleKey.D2:
                         await p.JoinGame(p.container, p.player);
+                        InputDone = true;
                         break;
-                    
+                    case ConsoleKey.D3:
+                        p.player.IsDonePlaying = true;
+                        InputDone = true;
+                        break;
+
                     default:
                         Console.WriteLine("Not a valid choice, try again");
                         break;
                 }
             }
-        }
-        private async Task EndGame()
-        {
-            await changeFeedProcessor.StopAsync();
         }
         private void CreatePlayer()
         {
@@ -92,8 +94,6 @@ namespace RockPaperScissor
         private async Task RunBasicChangeFeed(string databaseId, CosmosClient client)
         {
             await Program.InitializeAsync(databaseId, client);
-
-            // <BasicInitialization>
             Container leaseContainer = client.GetContainer(databaseId, Program.leasesContainer);
             container = client.GetContainer(databaseId, Program.monitoredContainer);
             changeFeedProcessor = container
@@ -101,7 +101,6 @@ namespace RockPaperScissor
                     .WithInstanceName("consoleHost")
                     .WithLeaseContainer(leaseContainer)
                     .Build();
-            // </BasicInitialization>
 
             Console.WriteLine("Booting...");
             await changeFeedProcessor.StartAsync();
@@ -124,34 +123,6 @@ namespace RockPaperScissor
         {
             Console.WriteLine($"Turn: {currentGame.Turn} ended in a Draw");
             currentGame.Turn++;
-        }
-        private async Task ChooseIfMoreGames(Program p)
-        {
-            bool InputDone = false;
-            while (InputDone == false)
-            {
-                Console.WriteLine("1: Exit");
-                Console.WriteLine("2: Play more games");
-                var keyInput = Console.ReadKey().Key;
-                switch (keyInput)
-                {
-                    case ConsoleKey.D1:
-                        InputDone = true;
-                        player.IsDonePlaying = true;
-                        await p.EndGame();
-                        break;
-                    case ConsoleKey.D2:
-                        InputDone = true;
-                        await p.RunGame(p);
-                        await container.UpsertItemAsync<Game>(currentGame);
-                        break;
-                    default:
-                        Console.WriteLine("Try again");
-                        break;
-                }
-                currentGame.ToMove = Game.PlayerType.Joiner;
-                return;
-            }
         }
         private void MakeAMove()
         {
@@ -203,7 +174,7 @@ namespace RockPaperScissor
                 currentGame.ToMove = Game.PlayerType.Creator;
             }
         }
-        private async Task PrintWinner(Program p)
+        private void PrintWinner()
         {
             if (currentGame.CreatorScore > currentGame.JoinerScore)
             {
@@ -213,9 +184,6 @@ namespace RockPaperScissor
             {
                 Console.WriteLine($"congratz {currentGame.JoinerName} to winning over {currentGame.CreatorName}");
             }
-            await ChooseIfMoreGames(p);
-
-
         }
         private async Task HandleChangesAsync(IReadOnlyCollection<Game> changes, CancellationToken cancellationToken)
         {
@@ -240,7 +208,7 @@ namespace RockPaperScissor
             if (currentGame.ToMove == Game.PlayerType.None)
             {
                 Console.Clear();
-                await PrintWinner(this);
+                PrintWinner();
                 return;
             }
             //kollar om någon vann rundan skriver ut segraren av rundan
