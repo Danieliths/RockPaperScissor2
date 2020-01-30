@@ -17,6 +17,7 @@ namespace RockPaperScissor
         public int CreatorScore { get; set; }
         public int JoinerScore { get; set; }
         public bool IsGameCompleted { get; set; }
+        public bool IsJoinable { get; set; }
         public PlayerType ToMove { get; set; }
         public int Turn { get; set; }
         public int FirstToNumberOfWins { get; set; }
@@ -25,7 +26,7 @@ namespace RockPaperScissor
             Id = Guid.NewGuid().ToString();
             GameName = hostName + Id;
             CreatorName = hostName;
-            JoinerName = "Pontus";
+            JoinerName = "Empty";
             CreatorMove = new List<Move>();
             JoinerMove = new List<Move>();
             CreatorScore = 0;
@@ -34,6 +35,7 @@ namespace RockPaperScissor
             Turn = 1;
             ToMove = PlayerType.Creator;
             FirstToNumberOfWins = 2;
+            IsJoinable = true;
         }
     }
 

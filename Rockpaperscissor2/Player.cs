@@ -11,12 +11,15 @@ namespace RockPaperScissor
         public string Id { get; set; }
         public string Name { get; set; }
         public Game.PlayerType TypeOfPlayer { get; set; }
-
+        public bool HasJoinedGame { get; set; }
+        public bool IsDonePlaying { get; set; }
         public Player(string name, Game.PlayerType playertype)
         {
             Id = Guid.NewGuid().ToString();
             Name = name;
             TypeOfPlayer = playertype;
+            HasJoinedGame = false;
+            IsDonePlaying = false;
         }
     }   
 }

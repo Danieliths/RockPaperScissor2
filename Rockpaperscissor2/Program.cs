@@ -21,6 +21,7 @@ namespace RockPaperScissor
         private Game currentGame;
         private Container container;
         private Player player;
+        private ChangeFeedProcessor changeFeedProcessor;
         static async Task Main(string[] args)
         {
             string endpoint = "https://localhost:8081";
@@ -29,21 +30,73 @@ namespace RockPaperScissor
             CosmosClient client = new CosmosClient(endpoint, authKey);
             Program p = new Program();
             //startar up alla grejer de lyssnar efter
-            Console.WriteLine($"\n1. Kör RunBasicChangeFeed.");
+            p.CreatePlayer();
             await p.RunBasicChangeFeed("Games", client);
+            await p.RunGame(p);
+            while (p.player.IsDonePlaying == false)
+            {
+                await Task.Delay(500);
+            }
+            await p.EndGame();
+            Console.WriteLine("Press any key to close...");
+            Console.ReadKey();
             
 
         }
-        private async Task RunBasicChangeFeed(
-            string databaseId,
-            CosmosClient client)
+        private async Task RunGame(Program p)
+        {
+            player.HasJoinedGame = false;
+            player.TypeOfPlayer = Game.PlayerType.None;
+            await p.JoinOrCreate(p);
+
+            while (p.currentGame.IsGameCompleted == false)
+            {
+                await Task.Delay(50);
+            }
+
+        }
+        private async Task JoinOrCreate(Program p)
+        {
+            
+            while (player.HasJoinedGame == false)
+            {
+                Console.Clear();
+                Console.WriteLine("1: Create game");
+                Console.WriteLine("2: Join game");
+                var keyInput = Console.ReadKey().Key;
+                switch (keyInput)
+                {
+                    case ConsoleKey.D1:
+                        await p.CreateGame(p.container, p.player);
+                        break;
+                    case ConsoleKey.D2:
+                        await p.JoinGame(p.container, p.player);
+                        break;
+                    
+                    default:
+                        Console.WriteLine("Not a valid choice, try again");
+                        break;
+                }
+            }
+        }
+        private async Task EndGame()
+        {
+            await changeFeedProcessor.StopAsync();
+        }
+        private void CreatePlayer()
+        {
+            player = new Player("Temp", Game.PlayerType.None);
+            Console.WriteLine("Enter name");
+            player.Name = Console.ReadLine();
+        }
+        private async Task RunBasicChangeFeed(string databaseId, CosmosClient client)
         {
             await Program.InitializeAsync(databaseId, client);
 
             // <BasicInitialization>
             Container leaseContainer = client.GetContainer(databaseId, Program.leasesContainer);
             container = client.GetContainer(databaseId, Program.monitoredContainer);
-            ChangeFeedProcessor changeFeedProcessor = container
+            changeFeedProcessor = container
                 .GetChangeFeedProcessorBuilder<Game>("RockPaperScissor", this.HandleChangesAsync)
                     .WithInstanceName("consoleHost")
                     .WithLeaseContainer(leaseContainer)
@@ -52,32 +105,6 @@ namespace RockPaperScissor
 
             Console.WriteLine("Booting...");
             await changeFeedProcessor.StartAsync();
-            player = new Player("test",Game.PlayerType.Creator);
-            await this.CreateGame(container,player);
-            Console.WriteLine("game created");
-            currentGame.IsGameCompleted = false; 
-            await container.UpsertItemAsync<Game>(currentGame);
-            while (currentGame.IsGameCompleted == false)
-            {
-            await Task.Delay(5000);
-
-            }
-            Console.WriteLine("Press any key to close...");
-            Console.ReadKey();
-            await changeFeedProcessor.StopAsync();
-            
-        }
-        private async Task EnterPlayerName()
-        {
-            Console.WriteLine("Enter name");
-            player.Name = Console.ReadLine();
-            
-            currentGame.CreatorName = player.Name;
-            currentGame.JoinerName = "Pontus";
-        }
-        private async Task NameChange(string name)
-        {
-
         }
         private void CreatorWin()
         {
@@ -98,36 +125,128 @@ namespace RockPaperScissor
             Console.WriteLine($"Turn: {currentGame.Turn} ended in a Draw");
             currentGame.Turn++;
         }
+        private async Task ChooseIfMoreGames(Program p)
+        {
+            bool InputDone = false;
+            while (InputDone == false)
+            {
+                Console.WriteLine("1: Exit");
+                Console.WriteLine("2: Play more games");
+                var keyInput = Console.ReadKey().Key;
+                switch (keyInput)
+                {
+                    case ConsoleKey.D1:
+                        InputDone = true;
+                        player.IsDonePlaying = true;
+                        await p.EndGame();
+                        break;
+                    case ConsoleKey.D2:
+                        InputDone = true;
+                        await p.RunGame(p);
+                        await container.UpsertItemAsync<Game>(currentGame);
+                        break;
+                    default:
+                        Console.WriteLine("Try again");
+                        break;
+                }
+                currentGame.ToMove = Game.PlayerType.Joiner;
+                return;
+            }
+        }
+        private void MakeAMove()
+        {
+            Console.WriteLine();
+            Console.WriteLine($"Your turn to move");
+            Console.WriteLine($"Current score");
+            Console.WriteLine($"First to {currentGame.FirstToNumberOfWins} wins");
+            Console.WriteLine($"{currentGame.CreatorName}: {currentGame.CreatorScore} wins");
+            Console.WriteLine($"{currentGame.JoinerName}: {currentGame.JoinerScore} wins");
+            Console.WriteLine("1: Rock");
+            Console.WriteLine("2: Paper");
+            Console.WriteLine("3: Scissor");
+            var keyInput = Console.ReadKey().Key;
+            if (currentGame.ToMove == Game.PlayerType.Creator)
+            {
+                switch (keyInput)
+                {
+                    case ConsoleKey.D1:
+                        currentGame.CreatorMove.Add(Game.Move.Rock);
+                        break;
+                    case ConsoleKey.D2:
+                        currentGame.CreatorMove.Add(Game.Move.Paper);
+                        break;
+                    case ConsoleKey.D3:
+                        currentGame.CreatorMove.Add(Game.Move.Scissors);
+                        break;
+                    default:
+                        break;
+                }
+                currentGame.ToMove = Game.PlayerType.Joiner;
+                return;
+            }
+            if (currentGame.ToMove == Game.PlayerType.Joiner)
+            {
+                switch (keyInput)
+                {
+                    case ConsoleKey.D1:
+                        currentGame.JoinerMove.Add(Game.Move.Rock);
+                        break;
+                    case ConsoleKey.D2:
+                        currentGame.JoinerMove.Add(Game.Move.Paper);
+                        break;
+                    case ConsoleKey.D3:
+                        currentGame.JoinerMove.Add(Game.Move.Scissors);
+                        break;
+                    default:
+                        break;
+                }
+                currentGame.ToMove = Game.PlayerType.Creator;
+            }
+        }
+        private async Task PrintWinner(Program p)
+        {
+            if (currentGame.CreatorScore > currentGame.JoinerScore)
+            {
+                Console.WriteLine($"congratz {currentGame.CreatorName} to winning over {currentGame.JoinerName}");
+            }
+            else
+            {
+                Console.WriteLine($"congratz {currentGame.JoinerName} to winning over {currentGame.CreatorName}");
+            }
+            await ChooseIfMoreGames(p);
 
+
+        }
         private async Task HandleChangesAsync(IReadOnlyCollection<Game> changes, CancellationToken cancellationToken)
         {
             currentGame = changes.First();
-            //Rätt Gamecheck
-            if (currentGame.Id != changes.First().Id)
-                return;
-            if (player.TypeOfPlayer == currentGame.ToMove || currentGame.ToMove == Game.PlayerType.None) // funkar ej. switcharunt
+            if (player.HasJoinedGame == false)
             {
-                Console.WriteLine($"Waiting for your turn");
                 return;
             }
-            Console.Clear();
+            if (currentGame.IsJoinable == true && player.HasJoinedGame)
+            {
+                Console.WriteLine("Waiting for player to join");
+                await Task.Delay(50);
+                return;
+            }
+            //Rätt Gamecheck
+            if (currentGame.Id != changes.First().Id)
+            {
+                return;
+            }
+            
             //Skriv ut vinnare
             if (currentGame.ToMove == Game.PlayerType.None)
             {
-                if (currentGame.CreatorScore > currentGame.JoinerScore)
-                {
-                    Console.WriteLine($"{currentGame.CreatorName} WINS congratz!");
-                    
-                }
-                else
-                {
-                    Console.WriteLine($"{currentGame.JoinerName} WINS congratz!");
-                }
+                Console.Clear();
+                await PrintWinner(this);
                 return;
             }
             //kollar om någon vann rundan skriver ut segraren av rundan
             if (currentGame.CreatorMove.Count() == currentGame.JoinerMove.Count() && currentGame.CreatorMove.Count() == currentGame.Turn)
             {
+                Console.Clear();
                 switch (currentGame.CreatorMove.Last())
                 {
                     case Game.Move.Rock:
@@ -179,97 +298,69 @@ namespace RockPaperScissor
             //Vinnare funnen check, sätter ToMove.None
             if (currentGame.FirstToNumberOfWins == currentGame.CreatorScore || currentGame.FirstToNumberOfWins == currentGame.JoinerScore)
             {
-                Console.WriteLine("inne i vinnare funnencheck");
+                Console.Clear();
                 currentGame.IsGameCompleted = true;
                 currentGame.ToMove = Game.PlayerType.None;
+                currentGame.IsGameCompleted = true;
                 await container.UpsertItemAsync<Game>(currentGame);
                 return;
             }
 
-
-
-            Console.WriteLine($"{currentGame.ToMove} turn to move");
-            Console.WriteLine($"Current score");
-            Console.WriteLine($"First to {currentGame.FirstToNumberOfWins} wins");
-            Console.WriteLine($"{currentGame.CreatorName}: {currentGame.CreatorScore} wins");
-            Console.WriteLine($"{currentGame.JoinerName}: {currentGame.JoinerScore} wins");
-            Console.WriteLine("1: Rock");
-            Console.WriteLine("2: Paper");
-            Console.WriteLine("3: Scissor");
-            var keyInput = Console.ReadKey().Key;
-            if (currentGame.ToMove == Game.PlayerType.Creator)
+            // vänta på din tur
+            if (currentGame.ToMove != player.TypeOfPlayer)
             {
-                switch (keyInput)
+                
+                if (player.TypeOfPlayer == Game.PlayerType.Joiner)
                 {
-                    case ConsoleKey.D1:
-                        currentGame.CreatorMove.Add(Game.Move.Rock);
-                        break;
-                    case ConsoleKey.D2:
-                        currentGame.CreatorMove.Add(Game.Move.Paper);
-                        break;
-                    case ConsoleKey.D3:
-                        currentGame.CreatorMove.Add(Game.Move.Scissors);
-                        break;
-                    default:
-                        break;
+                    Console.WriteLine($"Waiting for {currentGame.CreatorName} to move");
                 }
-                currentGame.ToMove = Game.PlayerType.Joiner;
-                await container.UpsertItemAsync<Game>(currentGame);
+                if (player.TypeOfPlayer == Game.PlayerType.Creator)
+                {
+                    Console.WriteLine($"Waiting for {currentGame.JoinerName} to move");
+                }
+                await Task.Delay(70);
                 return;
             }
-            if (currentGame.ToMove == Game.PlayerType.Joiner)
-            {
-                switch (keyInput)
-                {
-                    case ConsoleKey.D1:
-                        currentGame.JoinerMove.Add(Game.Move.Rock);
-                        break;
-                    case ConsoleKey.D2:
-                        currentGame.JoinerMove.Add(Game.Move.Paper);
-                        break;
-                    case ConsoleKey.D3:
-                        currentGame.JoinerMove.Add(Game.Move.Scissors);
-                        break;
-                    default:
-                        break;
-                }
-                currentGame.ToMove = Game.PlayerType.Creator;
-            }
-
-
             
+            MakeAMove();
+
             await container.UpsertItemAsync<Game>(currentGame);
             return;
         }
-
+        private async Task JoinGame(Container container, Player player)
+        {
+            Console.WriteLine("Looking for open game");
+            if (container.GetItemLinqQueryable<Game>(true).Where(o => o.IsJoinable == true).Count() > 0)
+            {
+                foreach (var item in container.GetItemLinqQueryable<Game>(true).Where(o => o.IsJoinable == true))
+                {
+                    currentGame = item;
+                    Console.WriteLine($"Joining game created by {currentGame.CreatorName}");
+                    player.HasJoinedGame = true;
+                    player.TypeOfPlayer = Game.PlayerType.Joiner;
+                    currentGame.JoinerName = player.Name;
+                    currentGame.IsJoinable = false;
+                    await container.UpsertItemAsync<Game>(currentGame);
+                    return;
+                }
+                
+                await Task.Delay(500);
+                return;
+            }
+            Console.WriteLine("No open game found");
+        }
         private async Task CreateGame(Container container, Player player)
         {
             await Task.Delay(500);
             currentGame = new Game(player.Name);
             await container.CreateItemAsync<Game>(currentGame); //new PartitionKey()
-
-
+            player.HasJoinedGame = true;
+            player.TypeOfPlayer = Game.PlayerType.Creator;
+            currentGame.IsGameCompleted = false;
+            Console.WriteLine("game created");
+            await container.UpsertItemAsync<Game>(currentGame);
         }
-        /// <summary>
-        /// Replace an item in the container
-        /// </summary>
-        //private async Task ReplaceFamilyItemAsync(Container container)
-        //{
-        //    ItemResponse<Game> wakefieldFamilyResponse = await container.UpsertItemAsync<Game>(currentGame);
-        //    var itemBody = wakefieldFamilyResponse.Resource;
-        //
-        //    // update registration status from false to true
-        //    itemBody.CreatorName = "Filip";
-        //    // update grade of child
-        //    
-        //
-        //    // replace the item with the updated content
-        //    wakefieldFamilyResponse = await container.ReplaceItemAsync<Game>(itemBody, itemBody.Id);
-        //    Console.WriteLine("Updated Family [{0},{1}].\n \tBody is now: {2}\n", itemBody.CreatorName, itemBody.Id, wakefieldFamilyResponse.Resource);
-        //}
-        private static async Task InitializeAsync(
-            string databaseId,
-            CosmosClient client)
+        private static async Task InitializeAsync(string databaseId, CosmosClient client)
         {
             Database database;
             // Recreate database
@@ -289,8 +380,6 @@ namespace RockPaperScissor
             await database.CreateContainerIfNotExistsAsync(new ContainerProperties(Program.leasesContainer, Program.partitionKeyPath));
         }
     }
-
- 
     internal class ChangeFeedObserver : IChangeFeedObserver
     {
         public Task CloseAsync(IChangeFeedObserverContext context, ChangeFeedObserverCloseReason reason)
