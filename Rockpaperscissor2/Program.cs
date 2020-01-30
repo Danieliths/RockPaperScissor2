@@ -287,7 +287,6 @@ namespace RockPaperScissor
         }
         private static void MakeAMove()
         {
-            Console.WriteLine();
             Console.WriteLine("\nYour turn to move");
             Console.WriteLine("Current score");
             Console.WriteLine($"First to {currentGame.FirstToNumberOfWins} wins");
